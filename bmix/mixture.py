@@ -51,17 +51,17 @@ def model(data = None, scale = .01, alpha = alpha, covariance = True, alpha_comp
     """
     # Global variables.
     weights = pyro.sample('weights', dist.Dirichlet(alpha_components * torch.ones(K)))
-    
+
     concentration = torch.ones(
             ()
         )
-    
+
     with pyro.plate('dims', ndim):
         scales = pyro.sample('scales', dist.Uniform(scale * .5, scale * 1.5))#dist.LogNormal(-2.5, 1))
 
     with pyro.plate('components', K):
         locs = pyro.sample('locs', dist.MultivariateNormal(torch.zeros(ndim), torch.eye(ndim)))
-        
+
         if covariance:
             # Implies a uniform distribution over correlation matrices
             L_omega = pyro.sample("L_omega", LKJCholesky(ndim, concentration))
@@ -73,7 +73,7 @@ def model(data = None, scale = .01, alpha = alpha, covariance = True, alpha_comp
         weighted_expectation = pyro.deterministic('weighted_expectation',
                                     torch.einsum('...ji,...j->...i', locs, local_weights)
                                          )
-        
+
         if covariance:
             # Lower cholesky factor of the covariance matrix
             L_Omega = pyro.deterministic('L_Omega',
@@ -94,46 +94,6 @@ cfg = dict()
 cfg['generation_model'] = model
 cfg['inference_model'] = model
 
-#def model2(data = None, scale = .01, alpha = alpha, covariance = True,
-#         N = N):
-#    """
-#    Simplified generative model that uses a symmetric dirichlet for mixing topics.
-#    alpha: dirichlet parameter for phase mixing
-#    """
-#    # Global variables.
-#    concentration = torch.ones(
-#            ()
-#        )
-#    # TODO should this be grouped with 'components' instead of 'dims'?
-#    with pyro.plate('dims', ndim):
-#        scales = pyro.sample('scales', dist.Uniform(scale * .5, scale * 1.5))#dist.LogNormal(-2.5, 1))
-#
-#    with pyro.plate('components', K):
-#        locs = pyro.sample('locs', dist.MultivariateNormal(torch.zeros(ndim), torch.eye(ndim)))
-#        
-#        if covariance:
-#            # Implies a uniform distribution over correlation matrices
-#            L_omega = pyro.sample("L_omega", LKJCholesky(ndim, concentration))
-#
-#    with pyro.plate('data', N):
-#        local_weights = pyro.sample("phase_weights", Dirichlet(alpha))
-#
-#        weighted_expectation = pyro.deterministic('weighted_expectation',
-#                                    torch.einsum('...ji,...j->...i', locs, local_weights)
-#                                         )
-#        if covariance:
-#            # Lower cholesky factor of the covariance matrix
-#            L_Omega = pyro.deterministic('L_Omega',
-#                torch.matmul(torch.diag(scales.sqrt()),
-#                                   torch.einsum('...jik,...j->...ik', L_omega, local_weights))
-#                )
-#            pyro.sample('obs',
-#                        dist.MultivariateNormal(weighted_expectation, scale_tril=L_Omega),
-#                        obs=data)
-#        else:
-#            pyro.sample('obs',
-#                dist.MultivariateNormal(weighted_expectation, torch.eye(ndim) * scales),
-#                obs=data)
 
 def dummy_model(data = None, scale = .01, alpha = alpha, covariance = True, alpha_components = 1,
          N = N):
@@ -142,7 +102,7 @@ def dummy_model(data = None, scale = .01, alpha = alpha, covariance = True, alph
     """
     # Global variables.
     weights = pyro.sample('global_weights', dist.Dirichlet(alpha_components * torch.ones(K)))
-    
+
     concentration = torch.ones(
             ()
         )
@@ -157,7 +117,7 @@ def dummy_model(data = None, scale = .01, alpha = alpha, covariance = True, alph
         # Local variables.
         local_weights = pyro.sample("phaseweight", Dirichlet(weights * alpha))
         weighted_expectation = torch.einsum('...ji,...j->...i', locs, local_weights)
-        
+
         if covariance:
             # Lower cholesky factor of the covariance matrix
             L_Omega = torch.matmul(torch.diag(scales.sqrt()),
@@ -188,49 +148,10 @@ def gen_data(N = N, alpha = alpha, noise_scale = .01, alpha_components = 5):
                     alpha_components, N = N)
 
     prior_samples = Predictive(_model, {}, num_samples=1)()
-    # TODO what's the difference between Predictive(model) and 
+    # TODO what's the difference between Predictive(model) and
     # Predictive(model, guide = guide)?
     return prior_samples['weighted_expectation'][0],\
         prior_samples['locs'][0], prior_samples['obs'][0], prior_samples['weights'][0], prior_samples
-
-
-## For now we're not using a custom guide
-#params = dict() # hack to store intermediate variables from the model. TODO there must be a pyro way of doing this
-#def guide(data = None, scale = .01, alpha = alpha, covariance = True, alpha_components = 1,
-#         N = N):
-#    """
-#    alpha_components: dirichlet parameter for phase weights
-#    alpha: dirichlet parameter for phase mixing
-#    """
-#    
-#    kappa = pyro.param('kappa', lambda: Uniform(scale * .5, scale * 1.5).sample([ndim]), constraint=constraints.positive)
-#    tau = pyro.param('tau', lambda: dist.MultivariateNormal(torch.zeros(ndim), torch.eye(ndim)).sample([K]))
-#    phi = pyro.param('phi', lambda: Dirichlet(alpha/K * torch.ones(K)).sample([N]), constraint=constraints.simplex)
-#
-#        
-#    # Global variables.
-#    weights = pyro.sample('weights', dist.Dirichlet(alpha_components * torch.ones(K)))
-#    
-#    concentration = torch.ones(
-#            ()
-#        )
-#    
-#    with pyro.plate('dims', ndim):
-#        scale = pyro.sample('scale', dist.Delta(kappa))
-#
-#    with pyro.plate('components', K):
-#        locs = pyro.sample('locs', dist.MultivariateNormal(tau, torch.eye(ndim)))
-#        
-#    with pyro.plate('data', N):
-#        # Local variables.
-#        local_weights = pyro.sample("phase_weights", dist.Delta(phi).to_event(1))
-#
-#        weighted_expectation = torch.einsum('...ji,...j->...i', locs, local_weights)
-#        params['weighted_expectation'] = weighted_expectation
-#        
-#        pyro.sample('obs',
-#            dist.MultivariateNormal(weighted_expectation, scale * torch.eye(ndim)),
-#            obs=data)
 
 
 def vi_inference(data, num_samples, N, alpha, n_iter = n_iter, noise_scale = .01,
@@ -241,9 +162,9 @@ def vi_inference(data, num_samples, N, alpha, n_iter = n_iter, noise_scale = .01
     log_likelihoods = []
     def f(*args):
         return cfg['inference_model'](*args, scale = noise_scale, alpha = alpha, N = N)
-    
+
 #     pyro.clear_param_store()
-        
+
     def train(num_iterations):
         pyro.clear_param_store()
 #         if seed is not None:
@@ -261,9 +182,9 @@ def vi_inference(data, num_samples, N, alpha, n_iter = n_iter, noise_scale = .01
     svi = SVI(f, guide,
               optim=optim,
               loss=elbo)
-    
+
     train(n_iter)
-    
+
     res = {'predictive': Predictive(f, guide = guide, num_samples=num_samples)(),
           'model': f,
            'guide': guide,
@@ -331,7 +252,7 @@ def mcmc_posterior(data, num_samples, N, alpha, noise_scale = .01, kernel = None
 
     log_likelihood = (dist.MultivariateNormal(weighted_expectation, scale_tril=L_Omega)
               .log_prob(data).sum().item())
-    
+
     return {'predictive': posterior_samples,
         'model': f,
         'losses': [None],
@@ -353,7 +274,7 @@ class Run(object):
             we, locs, data, weights_ground, gen_data_dict = gen_data(N, alpha = alpha, noise_scale = noise_scale)
         else:
             we, locs, data, weights_ground, gen_data_dict = datadict['latents'], datadict['locs'], datadict['data'], datadict['weights'], datadict['samples']
-        
+
         self.we = we
         self.weights = weights_ground
         self.locs = locs
@@ -366,10 +287,10 @@ class Run(object):
         self.noise_scale = noise_scale
         self.infer_noise_scale = infer_noise_scale
         self.inference_posterior_fn = inference_posterior_fn
-        
+
         if inference_seed is not None:
             pyro.set_rng_seed(inference_seed)
-            
+
         if warmup:
             self.warmup(n_iter = n_warmup)
             pyro.clear_param_store()
@@ -391,12 +312,12 @@ class Run(object):
     def run(self, n_iter = n_iter):
         if self.inference_seed is not None:
             pyro.set_rng_seed(self.inference_seed)
-            
+
         self.warmup(n_iter = n_iter)
-        we = self.we  
-        locs = self.locs  
-        data = self.data  
-        inference_output = self.inference_output  
+        we = self.we
+        locs = self.locs
+        data = self.data
+        inference_output = self.inference_output
 
         posterior_samples = inference_output['predictive']
         wrapped_model = inference_output['model']
@@ -419,8 +340,8 @@ class Run(object):
                              for ci_permute in clust_permutations]
         best_permutation = clust_permutations[np.argmin(permutation_norms)]
         locs_diffs = locs_posterior_means[best_permutation, :] - np.array(locs)
-        
-        # reshuffle random seed 
+
+        # reshuffle random seed
         pyro.set_rng_seed(np.random.randint(1e9))
 
         # merge with the posterior samples dictionary, instead of extracting sites
@@ -462,7 +383,7 @@ def plotnfindr(i, save = False, xlim = None, ylim = None):
         plt.ylim(ylim)
     if save:
         plt.savefig('data/figs/{}.png'.format(i))
-    
+
 def get_max(f, metric, *args, attempts = 1):
     res = []
     for _ in range(attempts):
@@ -503,13 +424,13 @@ def gridscan_noise(alpha = 1, noise_scales = .03 * np.random.uniform(10) + 1e-3)
     runs, runoutputs = grid_generate(alphas, noise_scales)
     return alphas, scales, runs, runoutputs
 
-#### 
+####
 # plotting functions
-#### 
+####
 
-def plt_heatmap_alpha_noise(runoutputs, alphas, zname = 'diff_locs', yscale = 300, label = None, vmax = 1):    
+def plt_heatmap_alpha_noise(runoutputs, alphas, zname = 'diff_locs', yscale = 300, label = None, vmax = 1):
     """
-    Plot a heatmap of reconstruction errors.    
+    Plot a heatmap of reconstruction errors.
     """
     noise = np.array([elt['noise_scale'] for elt in runoutputs])
 
@@ -543,9 +464,9 @@ def ploti2(runoutputs, i, save = False, xlim = None, ylim = None, with_nfindr = 
     data = runoutputs[i]['data']
     plt.scatter(*(data).T, s = 5, label = 'Training observations')
     plt.scatter(*torch.vstack(runoutputs[i]['components']).T, s = 5, label = 'End members\n(posterior samples)')
-    
+
     plt.scatter(*(locs.T), s = 50, label = 'End members\n(ground truth)')
-    
+
     post_loc_centroids = np.vstack([comp.mean(axis = 0) for comp in runoutputs[i]['components']])
     plt.scatter(*post_loc_centroids.T, c = 'k', s = 50, label = 'End members (posterior\nsample centroids)')
     if with_nfindr:
@@ -569,7 +490,7 @@ def ploti2(runoutputs, i, save = False, xlim = None, ylim = None, with_nfindr = 
 
 def initialize(seed, *args, **kwargs):
     global global_guide, svi, prior_sample
-        
+
     def f():
         pyro.clear_param_store()
         if seed is not None:
@@ -605,49 +526,3 @@ tf.enable_v2_behavior()
 plt.style.use("ggplot")
 warnings.filterwarnings('ignore')
 
-#def probabilistic_pca(data_dim, latent_dim, N, stddv_datapoints):
-#    w = yield tfd.Normal(loc=tf.zeros([data_dim, latent_dim]),
-#                 scale=2.0 * tf.ones([data_dim, latent_dim]),
-#                 name="w")
-#    z = yield tfd.Beta(.5 * tf.ones([latent_dim, N]), .5 * tf.ones([latent_dim, N]),
-#                 name="z")
-#    x = yield tfd.Normal(loc=tf.matmul(w, z),
-#                       scale=stddv_datapoints,
-#                       name="x")
-#
-#data_dim = 2
-#latent_dim = 2
-#
-#from scipy.stats import wasserstein_distance as wd
-#from scipy.stats import entropy
-#
-#def hist2d(x_train):
-#    H, xe, ye = np.histogram2d(np.array(x_train[0, :]), np.array(x_train[1, :]), bins = 20)
-#    return H + 1e-9
-#
-#def ppca_generated(res):
-#    x_train = res['data'].T
-#    
-#    stddv_datapoints = tf.cast(res['noise_scale'], 'float32')
-#
-#    concrete_ppca_model = functools.partial(probabilistic_pca,
-#        data_dim=data_dim,
-#        latent_dim=latent_dim,
-#        num_datapoints=N,
-#        stddv_datapoints=stddv_datapoints)
-#
-#    model = tfd.JointDistributionCoroutineAutoBatched(concrete_ppca_model)
-#    
-#    w = tf.Variable(tf.random.normal([data_dim, latent_dim]))
-#    z = tf.Variable(tf.random.normal([latent_dim, N]))
-#
-#    target_log_prob_fn = lambda w, z: model.log_prob((w, z, x_train))
-#    losses = tfp.math.minimize(
-#        lambda: -target_log_prob_fn(w, z),
-#        optimizer=tf.optimizers.Adam(learning_rate=0.05),
-#        num_steps=200)
-#    print("MAP-estimated axes:")
-#    print(w)
-#
-#    _, _, x_generated = model.sample(value=(w, None, None))
-#    return x_generated, w, z
